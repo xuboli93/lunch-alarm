@@ -1,0 +1,27 @@
+{
+    "name": "식수 인원 관리",
+    "short_name": "식수관리",
+    "description": "매일 식수 인원을 팀별로 입력하고 알림을 받는 앱",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#F5F6FA",
+    "theme_color": "#FF6B35",
+    "orientation": "portrait",
+    "icons": [
+        {
+            "src": "https://cdn.jsdelivr.net/npm/twemoji@14/assets/72x72/1f371.png",
+            "sizes": "72x72",
+            "type": "image/png"
+        },
+        {
+            "src": "https://cdn.jsdelivr.net/npm/twemoji@14/assets/72x72/1f371.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "https://cdn.jsdelivr.net/npm/twemoji@14/assets/72x72/1f371.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}
