@@ -1,0 +1,768 @@
+/* =============================================
+   식수 인원 관리 앱 - JavaScript
+   ============================================= */
+
+// ===== 팀 설정 =====
+const TEAMS = {
+    executives: { label: '이사/대표님', max: 4, emoji: '👔' },
+    operations: { label: '운영컨설팅팀', max: 8, emoji: '💼' },
+    strategy:   { label: '경영전략팀',   max: 6, emoji: '📈' },
+    purchasing: { label: '구매팀',       max: 3, emoji: '🛒' },
+    cleaner:    { label: '청소이모님',   max: 1, emoji: '🧹' },
+};
+
+const DAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
+const CLEANER_DAYS = [1, 4]; // 월(1), 목(4)
+
+// ===== 상태 =====
+let alarmInterval = null;
+let alarmEnabled = false;
+let alarmTime = '10:30';
+let alarmDays = [1, 2, 3, 4, 5];
+
+// ===== 초기화 =====
+document.addEventListener('DOMContentLoaded', () => {
+    updateDateDisplay();
+    renderAllDots();
+    loadSettings();
+    checkCleanerDay();
+    updateLiveTotal();
+    checkNotificationPermission();
+    startAlarmChecker();
+
+    // 오늘 저장된 데이터 자동 로드
+    loadTodayData();
+});
+
+// ===== 날짜 표시 =====
+function updateDateDisplay() {
+    const now = new Date();
+    const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+    const dateStr = now.toLocaleDateString('ko-KR', options);
+    document.getElementById('todayDateDisplay').textContent = dateStr;
+}
+
+function getTodayStr() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function getDayName(dateStr) {
+    const date = new Date(dateStr);
+    return DAYS_KO[date.getDay()];
+}
+
+// ===== 청소 이모님 요일 체크 =====
+function checkCleanerDay() {
+    const today = new Date().getDay();
+    const cleanerCard = document.getElementById('cleanerCard');
+    const cleanerNote = document.getElementById('cleanerNote');
+    const isCleanerDay = CLEANER_DAYS.includes(today);
+
+    if (isCleanerDay) {
+        cleanerCard.classList.add('cleaner-day');
+        cleanerNote.textContent = `월·목 1명 (오늘은 ${DAYS_KO[today]}요일 — 해당!)`;
+        cleanerNote.style.color = '#059669';
+        // 청소이모님 자동으로 1 설정
+        const cleanerInput = document.getElementById('cleaner');
+        if (parseInt(cleanerInput.value) === 0) {
+            cleanerInput.value = 1;
+            updateCount('cleaner', 1);
+        }
+    } else {
+        cleanerCard.classList.remove('cleaner-day');
+        cleanerNote.textContent = `월·목 1명 (오늘은 ${DAYS_KO[today]}요일 — 미해당)`;
+        cleanerNote.style.color = '';
+    }
+}
+
+// ===== 카운터 조작 =====
+function changeCount(team, delta) {
+    const input = document.getElementById(team);
+    const max = TEAMS[team].max;
+    let val = parseInt(input.value) || 0;
+    val = Math.min(max, Math.max(0, val + delta));
+    input.value = val;
+    updateCount(team, val);
+}
+
+function updateCount(team, val) {
+    const max = TEAMS[team].max;
+    val = Math.min(max, Math.max(0, parseInt(val) || 0));
+    document.getElementById(team).value = val;
+    renderDots(team, val, max);
+    updateLiveTotal();
+    updateSummaryChips();
+}
+
+// ===== 멤버 닷 렌더링 =====
+function renderDots(team, count, max) {
+    const container = document.getElementById(`dots${capitalize(team)}`);
+    if (!container) return;
+    container.innerHTML = '';
+    for (let i = 0; i < max; i++) {
+        const dot = document.createElement('div');
+        dot.className = `member-dot ${i < count ? 'on' : 'off'}`;
+        container.appendChild(dot);
+    }
+}
+
+function renderAllDots() {
+    Object.entries(TEAMS).forEach(([key, info]) => {
+        const val = parseInt(document.getElementById(key)?.value) || 0;
+        renderDots(key, val, info.max);
+    });
+}
+
+// ===== 실시간 합계 업데이트 =====
+function updateLiveTotal() {
+    let total = 0;
+    Object.keys(TEAMS).forEach(key => {
+        const val = parseInt(document.getElementById(key)?.value) || 0;
+        total += val;
+    });
+    document.getElementById('liveTotal').textContent = `${total}명`;
+    return total;
+}
+
+// ===== 요약 칩 업데이트 =====
+function updateSummaryChips() {
+    const mapping = {
+        executives: 'countExecutives',
+        operations: 'countOperations',
+        strategy: 'countStrategy',
+        purchasing: 'countPurchasing',
+        cleaner: 'countCleaner',
+    };
+    const chipMapping = {
+        executives: 'chipExecutives',
+        operations: 'chipOperations',
+        strategy: 'chipStrategy',
+        purchasing: 'chipPurchasing',
+        cleaner: 'chipCleaner',
+    };
+    Object.keys(TEAMS).forEach(key => {
+        const val = parseInt(document.getElementById(key)?.value) || 0;
+        const countEl = document.getElementById(mapping[key]);
+        const chipEl = document.getElementById(chipMapping[key]);
+        if (countEl) countEl.textContent = val;
+        if (chipEl) {
+            if (val > 0) chipEl.classList.add('active');
+            else chipEl.classList.remove('active');
+        }
+    });
+}
+
+// ===== 초기화 =====
+function resetAll() {
+    if (!confirm('모든 입력값을 초기화할까요?')) return;
+    Object.keys(TEAMS).forEach(key => {
+        const el = document.getElementById(key);
+        if (el) el.value = 0;
+    });
+    document.getElementById('memoInput').value = '';
+    checkCleanerDay();
+    updateLiveTotal();
+    updateSummaryChips();
+    renderAllDots();
+    showToast('초기화되었습니다.', 'info');
+}
+
+// ===== 저장 =====
+async function saveRecord() {
+    const total = updateLiveTotal();
+
+    const data = {
+        date: getTodayStr(),
+        day_of_week: getDayName(getTodayStr()),
+        executives: parseInt(document.getElementById('executives').value) || 0,
+        operations: parseInt(document.getElementById('operations').value) || 0,
+        strategy:   parseInt(document.getElementById('strategy').value) || 0,
+        purchasing: parseInt(document.getElementById('purchasing').value) || 0,
+        cleaner:    parseInt(document.getElementById('cleaner').value) || 0,
+        total: total,
+        memo: document.getElementById('memoInput').value || '',
+    };
+
+    const saveBtn = document.querySelector('.save-btn');
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 저장 중...';
+
+    try {
+        // 기존 오늘 기록 확인
+        const res = await fetch(`tables/lunch_records?search=${data.date}&limit=50`);
+        const json = await res.json();
+        const existingToday = json.data?.find(r => r.date === data.date);
+
+        let response;
+        if (existingToday) {
+            // 수정
+            response = await fetch(`tables/lunch_records/${existingToday.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        } else {
+            // 신규
+            response = await fetch('tables/lunch_records', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        }
+
+        if (response.ok) {
+            showToast(`✅ 오늘 식수 ${total}명 저장 완료!`, 'success');
+            // 히스토리 새로고침
+            if (!document.getElementById('tabHistory').classList.contains('hidden')) {
+                loadHistory();
+            }
+        } else {
+            throw new Error('저장 실패');
+        }
+    } catch (e) {
+        showToast('❌ 저장 중 오류가 발생했습니다.', 'error');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="fas fa-save"></i> 오늘 인원 저장';
+    }
+}
+
+// ===== 오늘 데이터 자동 로드 =====
+async function loadTodayData() {
+    try {
+        const today = getTodayStr();
+        const res = await fetch(`tables/lunch_records?search=${today}&limit=50`);
+        const json = await res.json();
+        const todayRecord = json.data?.find(r => r.date === today);
+
+        if (todayRecord) {
+            document.getElementById('executives').value = todayRecord.executives || 0;
+            document.getElementById('operations').value = todayRecord.operations || 0;
+            document.getElementById('strategy').value   = todayRecord.strategy || 0;
+            document.getElementById('purchasing').value = todayRecord.purchasing || 0;
+            document.getElementById('cleaner').value    = todayRecord.cleaner || 0;
+            document.getElementById('memoInput').value  = todayRecord.memo || '';
+            renderAllDots();
+            updateLiveTotal();
+            updateSummaryChips();
+        }
+    } catch (e) {
+        // 오늘 데이터 없음 - 정상
+    }
+}
+
+// ===== 기록 로드 =====
+async function loadHistory() {
+    const listEl = document.getElementById('historyList');
+    listEl.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>불러오는 중...</p></div>';
+
+    try {
+        const res = await fetch('tables/lunch_records?limit=100&sort=date');
+        const json = await res.json();
+        const records = (json.data || [])
+            .filter(r => !r.deleted)
+            .sort((a, b) => b.date?.localeCompare(a.date));
+
+        if (records.length === 0) {
+            listEl.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>저장된 기록이 없습니다.</p></div>';
+            updateStats([]);
+            return;
+        }
+
+        updateStats(records);
+        listEl.innerHTML = records.map(r => renderHistoryItem(r)).join('');
+    } catch (e) {
+        listEl.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>불러오기 실패</p></div>';
+    }
+}
+
+function renderHistoryItem(r) {
+    const dayLabels = {
+        executives: '이사/대표',
+        operations: '운영컨설팅',
+        strategy: '경영전략',
+        purchasing: '구매팀',
+        cleaner: '청소이모님'
+    };
+
+    const tags = Object.entries(dayLabels)
+        .filter(([key]) => r[key] > 0)
+        .map(([key, label]) => `<span class="history-team-tag">${TEAMS[key].emoji} ${label} ${r[key]}명</span>`)
+        .join('');
+
+    const memoHTML = r.memo
+        ? `<div class="history-memo"><i class="fas fa-sticky-note"></i> ${escapeHtml(r.memo)}</div>`
+        : '';
+
+    const dateFormatted = formatDateKo(r.date);
+
+    return `
+    <div class="history-item" id="item-${r.id}">
+        <div class="history-item-header">
+            <div class="history-date">📅 ${dateFormatted}</div>
+            <div class="history-total">총 ${r.total}명</div>
+        </div>
+        <div class="history-teams">${tags}</div>
+        ${memoHTML}
+        <div class="history-item-actions">
+            <button class="action-btn load" onclick="loadRecordToInput('${r.id}')">
+                <i class="fas fa-edit"></i> 수정
+            </button>
+            <button class="action-btn delete" onclick="deleteRecord('${r.id}')">
+                <i class="fas fa-trash"></i> 삭제
+            </button>
+        </div>
+    </div>`;
+}
+
+// ===== 기록 수정 (불러오기) =====
+async function loadRecordToInput(id) {
+    try {
+        const res = await fetch(`tables/lunch_records/${id}`);
+        const r = await res.json();
+
+        document.getElementById('executives').value = r.executives || 0;
+        document.getElementById('operations').value = r.operations || 0;
+        document.getElementById('strategy').value   = r.strategy || 0;
+        document.getElementById('purchasing').value = r.purchasing || 0;
+        document.getElementById('cleaner').value    = r.cleaner || 0;
+        document.getElementById('memoInput').value  = r.memo || '';
+
+        renderAllDots();
+        updateLiveTotal();
+        updateSummaryChips();
+
+        // 입력 탭으로 이동
+        const inputTab = document.querySelector('.tab-btn');
+        switchTab('input', inputTab);
+
+        showToast(`📋 ${formatDateKo(r.date)} 기록을 불러왔습니다.`, 'success');
+    } catch (e) {
+        showToast('불러오기 실패', 'error');
+    }
+}
+
+// ===== 기록 삭제 =====
+async function deleteRecord(id) {
+    if (!confirm('이 기록을 삭제할까요?')) return;
+    try {
+        const res = await fetch(`tables/lunch_records/${id}`, { method: 'DELETE' });
+        if (res.ok || res.status === 204) {
+            document.getElementById(`item-${id}`)?.remove();
+            showToast('🗑️ 삭제되었습니다.', 'success');
+            // 기록 없으면 빈 상태 표시
+            const list = document.getElementById('historyList');
+            if (list.children.length === 0) {
+                list.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>저장된 기록이 없습니다.</p></div>';
+            }
+            loadHistory(); // 통계 업데이트
+        }
+    } catch (e) {
+        showToast('삭제 실패', 'error');
+    }
+}
+
+// ===== 통계 업데이트 =====
+function updateStats(records) {
+    if (records.length === 0) {
+        ['statDays', 'statAvg', 'statMax', 'statMin'].forEach(id => {
+            document.getElementById(id).textContent = '-';
+        });
+        return;
+    }
+
+    const totals = records.map(r => r.total || 0);
+    const avg = Math.round(totals.reduce((a, b) => a + b, 0) / totals.length);
+    const max = Math.max(...totals);
+    const min = Math.min(...totals);
+
+    document.getElementById('statDays').textContent = records.length;
+    document.getElementById('statAvg').textContent = avg + '명';
+    document.getElementById('statMax').textContent = max + '명';
+    document.getElementById('statMin').textContent = min + '명';
+}
+
+// ===== 탭 전환 =====
+function switchTab(name, btn) {
+    document.querySelectorAll('.tab-content').forEach(el => {
+        el.classList.remove('active');
+        el.classList.add('hidden');
+    });
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
+    document.getElementById(`tab${capitalize(name)}`).classList.remove('hidden');
+    document.getElementById(`tab${capitalize(name)}`).classList.add('active');
+    if (btn) btn.classList.add('active');
+
+    if (name === 'history') loadHistory();
+}
+
+// ===== 알람 설정 로드/저장 =====
+function loadSettings() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('lunchAlarmSettings') || '{}');
+        if (saved.alarmEnabled !== undefined) alarmEnabled = saved.alarmEnabled;
+        if (saved.alarmTime) alarmTime = saved.alarmTime;
+        if (saved.alarmDays) alarmDays = saved.alarmDays;
+
+        document.getElementById('alarmToggle').checked = alarmEnabled;
+        document.getElementById('alarmTimeInput').value = alarmTime;
+
+        document.querySelectorAll('.day-check').forEach(cb => {
+            cb.checked = alarmDays.includes(parseInt(cb.value));
+        });
+
+        updateAlarmUI();
+    } catch (e) {}
+}
+
+function saveSettings() {
+    localStorage.setItem('lunchAlarmSettings', JSON.stringify({
+        alarmEnabled, alarmTime, alarmDays
+    }));
+}
+
+// ===== 알람 토글 =====
+function toggleAlarm(checkbox) {
+    alarmEnabled = checkbox.checked;
+    saveSettings();
+    updateAlarmUI();
+
+    if (alarmEnabled) {
+        requestNotificationPermission();
+        showToast('🔔 알람이 설정되었습니다!', 'success');
+    } else {
+        showToast('알람이 꺼졌습니다.', 'info');
+    }
+}
+
+// ===== 알람 시간 적용 =====
+function applyAlarmTime() {
+    const input = document.getElementById('alarmTimeInput').value;
+    if (!input) return;
+    alarmTime = input;
+
+    alarmDays = [];
+    document.querySelectorAll('.day-check:checked').forEach(cb => {
+        alarmDays.push(parseInt(cb.value));
+    });
+
+    saveSettings();
+    updateAlarmUI();
+    showToast(`⏰ 알람 시간이 ${alarmTime}으로 설정되었습니다!`, 'success');
+}
+
+// ===== 알람 UI 업데이트 =====
+function updateAlarmUI() {
+    const dot = document.getElementById('alarmStatusDot');
+    const statusText = document.getElementById('alarmStatusText');
+    const badge = document.getElementById('alarmBadge');
+    const nextAlarmRow = document.getElementById('nextAlarmRow');
+
+    if (alarmEnabled) {
+        dot.className = 'fas fa-circle on';
+        statusText.textContent = '켜짐';
+        statusText.className = 'status-on';
+        badge.classList.add('active');
+        nextAlarmRow.style.display = 'flex';
+        document.getElementById('nextAlarmText').textContent = getNextAlarmText();
+    } else {
+        dot.className = 'fas fa-circle off';
+        statusText.textContent = '꺼짐';
+        statusText.className = 'status-off';
+        badge.classList.remove('active');
+        nextAlarmRow.style.display = 'none';
+    }
+}
+
+function getNextAlarmText() {
+    if (!alarmEnabled || alarmDays.length === 0) return '-';
+
+    const now = new Date();
+    const [hh, mm] = alarmTime.split(':').map(Number);
+
+    for (let i = 0; i < 7; i++) {
+        const candidate = new Date(now);
+        candidate.setDate(now.getDate() + i);
+        candidate.setHours(hh, mm, 0, 0);
+
+        const candidateDay = candidate.getDay();
+        if (!alarmDays.includes(candidateDay)) continue;
+        if (i === 0 && candidate <= now) continue;
+
+        const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+        const dayStr = i === 0 ? '오늘' : i === 1 ? '내일' : `${dayNames[candidateDay]}요일`;
+        return `${dayStr} ${alarmTime}`;
+    }
+    return '설정 없음';
+}
+
+// ===== 알람 체커 =====
+function startAlarmChecker() {
+    if (alarmInterval) clearInterval(alarmInterval);
+    alarmInterval = setInterval(checkAlarm, 10000); // 10초마다 체크
+    checkAlarm();
+}
+
+function checkAlarm() {
+    if (!alarmEnabled) return;
+
+    const now = new Date();
+    const currentDay = now.getDay();
+    const currentTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+    if (!alarmDays.includes(currentDay)) return;
+    if (currentTime !== alarmTime) return;
+
+    // 오늘 이미 알람 표시했으면 스킵
+    const lastAlarm = localStorage.getItem('lastAlarmDate');
+    const todayStr = getTodayStr();
+    if (lastAlarm === todayStr) return;
+
+    localStorage.setItem('lastAlarmDate', todayStr);
+    triggerAlarm();
+}
+
+// ===== 알람 트리거 =====
+function triggerAlarm() {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+
+    // 화면 팝업
+    document.getElementById('alarmTime').textContent = timeStr;
+    document.getElementById('alarmOverlay').classList.remove('hidden');
+
+    // 브라우저 알림
+    sendNotification('🍱 식수 인원 입력 시간!', '오늘 식수 인원을 입력해주세요.');
+
+    // 진동 (모바일)
+    if (navigator.vibrate) {
+        navigator.vibrate([300, 100, 300, 100, 300]);
+    }
+}
+
+// ===== 알람 닫기 =====
+function closeAlarm() {
+    document.getElementById('alarmOverlay').classList.add('hidden');
+    // 입력 탭으로 이동
+    const inputTab = document.querySelector('.tab-btn');
+    switchTab('input', inputTab);
+}
+
+// ===== 알람 테스트 =====
+function testAlarm() {
+    const overlay = document.getElementById('alarmOverlay');
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('alarmTime').textContent = timeStr + ' (테스트)';
+    overlay.classList.remove('hidden');
+    sendNotification('🍱 [테스트] 식수 인원 입력 시간!', '알람 테스트입니다.');
+    if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+}
+
+// ===== 브라우저 알림 권한 확인 및 UI 처리 =====
+function checkNotificationPermission() {
+    if (!('Notification' in window)) {
+        // 알림 미지원 브라우저
+        showPermissionBox('unsupported');
+        return;
+    }
+
+    const perm = Notification.permission;
+    if (perm === 'granted') {
+        // 이미 허용됨
+        hideBanner();
+        hidePermissionBox();
+        updateNotiStatus('granted');
+    } else if (perm === 'denied') {
+        // 차단됨
+        showBanner();
+        showPermissionBox('denied');
+        updateNotiStatus('denied');
+    } else {
+        // default (아직 요청 안함)
+        showBanner();
+        showPermissionBox('default');
+        updateNotiStatus('default');
+    }
+}
+
+// 알림 허용 요청
+async function requestPermission() {
+    if (!('Notification' in window)) {
+        showToast('❌ 이 브라우저는 알림을 지원하지 않습니다.', 'error');
+        return;
+    }
+
+    if (Notification.permission === 'denied') {
+        // 차단된 경우 직접 설정 안내
+        showToast('⚙️ 브라우저 설정에서 알림을 허용해 주세요!', 'error');
+        updateNotiStatus('denied');
+        showManualGuide();
+        return;
+    }
+
+    const permissionBtn = document.querySelector('.noti-permission-btn');
+    if (permissionBtn) {
+        permissionBtn.disabled = true;
+        permissionBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 요청 중...';
+    }
+
+    try {
+        const result = await Notification.requestPermission();
+        if (result === 'granted') {
+            hideBanner();
+            hidePermissionBox();
+            updateNotiStatus('granted');
+            showToast('✅ 알림이 허용되었습니다! 알람이 정상 작동합니다.', 'success');
+            // 테스트 알림 발송
+            setTimeout(() => {
+                sendNotification('🍱 알림 허용 완료!', '식수 인원 알람이 정상적으로 설정되었습니다.');
+            }, 500);
+        } else if (result === 'denied') {
+            updateNotiStatus('denied');
+            showToast('❌ 알림이 차단되었습니다. 브라우저 설정에서 허용해 주세요.', 'error');
+            showManualGuide();
+        }
+    } catch(e) {
+        showToast('알림 요청 중 오류가 발생했습니다.', 'error');
+    } finally {
+        if (permissionBtn) {
+            permissionBtn.disabled = false;
+            permissionBtn.innerHTML = '<i class="fas fa-bell"></i> 알림 허용하기';
+        }
+    }
+}
+
+// 알림 상태 텍스트 업데이트
+function updateNotiStatus(status) {
+    const statusEl = document.getElementById('notiStatus');
+    if (!statusEl) return;
+
+    if (status === 'granted') {
+        statusEl.textContent = '✅ 알림이 허용되어 있습니다.';
+        statusEl.className = 'noti-permission-status granted';
+    } else if (status === 'denied') {
+        statusEl.textContent = '❌ 알림이 차단되어 있습니다. 브라우저 설정에서 직접 허용해 주세요.';
+        statusEl.className = 'noti-permission-status denied';
+    } else if (status === 'unsupported') {
+        statusEl.textContent = '⚠️ 이 브라우저는 알림을 지원하지 않습니다.';
+        statusEl.className = 'noti-permission-status denied';
+    } else {
+        statusEl.textContent = '';
+        statusEl.className = 'noti-permission-status';
+    }
+}
+
+// 배너 표시/숨김
+function showBanner() {
+    document.getElementById('notiBanner')?.classList.remove('hidden');
+}
+function hideBanner() {
+    document.getElementById('notiBanner')?.classList.add('hidden');
+}
+function closeBanner() {
+    hideBanner();
+}
+
+// 권한 박스 표시/숨김
+function showPermissionBox(status) {
+    const box = document.getElementById('notiPermissionBox');
+    if (!box) return;
+    box.classList.remove('hidden');
+
+    const btn = box.querySelector('.noti-permission-btn');
+    if (status === 'denied') {
+        if (btn) btn.innerHTML = '<i class="fas fa-cog"></i> 브라우저 설정 안내 보기';
+    } else if (status === 'unsupported') {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '⚠️ 알림 미지원 브라우저';
+            btn.style.background = '#9CA3AF';
+        }
+    }
+}
+function hidePermissionBox() {
+    document.getElementById('notiPermissionBox')?.classList.add('hidden');
+}
+
+// 수동 설정 안내 토스트
+function showManualGuide() {
+    const ua = navigator.userAgent;
+    let msg = '';
+    if (/iPhone|iPad/.test(ua)) {
+        msg = '📱 Safari: 설정 → Safari → 알림 → 사이트 허용';
+    } else if (/Android/.test(ua)) {
+        msg = '📱 Chrome: 주소창 🔒 → 사이트 설정 → 알림 허용';
+    } else {
+        msg = '💻 주소창 왼쪽 🔒 클릭 → 알림 → 허용';
+    }
+    showToast(msg, 'error');
+}
+
+// ===== 브라우저 알림 (기존 함수 대체) =====
+async function requestNotificationPermission() {
+    checkNotificationPermission();
+}
+
+function sendNotification(title, body) {
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+
+    new Notification(title, {
+        body: body,
+        icon: 'https://cdn.jsdelivr.net/npm/twemoji@14/assets/72x72/1f371.png',
+        badge: 'https://cdn.jsdelivr.net/npm/twemoji@14/assets/72x72/1f514.png',
+        requireInteraction: true,
+    });
+}
+
+// ===== 헤더 버튼 바로가기 =====
+function showAlarmSetting() {
+    const alarmTab = document.querySelectorAll('.tab-btn')[2];
+    switchTab('alarm', alarmTab);
+}
+
+function showHistory() {
+    const historyTab = document.querySelectorAll('.tab-btn')[1];
+    switchTab('history', historyTab);
+}
+
+// ===== 토스트 메시지 =====
+let toastTimer = null;
+function showToast(msg, type = 'info') {
+    const toast = document.getElementById('toastMsg');
+    toast.textContent = msg;
+    toast.className = `toast ${type}`;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+        toast.className = 'toast hidden';
+    }, 3000);
+}
+
+// ===== 유틸 =====
+function capitalize(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function escapeHtml(str) {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function formatDateKo(dateStr) {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr + 'T00:00:00');
+    const y = date.getFullYear();
+    const m = date.getMonth() + 1;
+    const d = date.getDate();
+    const day = DAYS_KO[date.getDay()];
+    return `${y}년 ${m}월 ${d}일 (${day})`;
+}
